@@ -9,7 +9,7 @@
     {
       "name": "model-switch-alert",
       "description": "Sound alerts when Claude Code silently falls back from Fable 5 to Opus 4.8 (or any unexpected model)",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "author": {
         "name": "Kaishu Shito"
       },

@@ -19,7 +19,9 @@ SOUND_ONGOING="/System/Library/Sounds/Morse.aiff"
 SOUND_RECOVER="/System/Library/Sounds/Hero.aiff"
 
 # Hook stdin has no model field; read the latest assistant message's model from the transcript.
-model=$(tail -n 200 "$transcript" | jq -r 'select(.type == "assistant") | .message.model // empty' 2>/dev/null | grep -v '^<' | tail -n 1)
+# Exclude sidechain (subagent) messages: subagents may legitimately run on other models
+# (e.g. Haiku-powered explorers) and must not trigger a false alarm.
+model=$(tail -n 200 "$transcript" | jq -r 'select(.type == "assistant" and ((.isSidechain // false) | not)) | .message.model // empty' 2>/dev/null | grep -v '^<' | tail -n 1)
 [ -n "$model" ] || exit 0
 
 # Remember the previous model per session to detect transitions.
@@ -29,6 +31,22 @@ printf '%s\n' "$model" > "$state"
 
 speak() {
   say -v Kyoko "$1" 2>/dev/null || say "$2"
+}
+
+# Machine-wide sound cooldown: with many parallel sessions (e.g. 100 Cockpit tasks),
+# individual per-session alerts would stack into an alarm storm. Only the first alert
+# within the window makes noise; the rest stay visual-only (systemMessage).
+# Set CLAUDE_MODEL_ALERT_COOLDOWN=0 to disable.
+cooldown="${CLAUDE_MODEL_ALERT_COOLDOWN:-30}"
+sound_ok() {
+  [ "$cooldown" -le 0 ] 2>/dev/null && return 0
+  local gate now last
+  gate="${TMPDIR:-/tmp}/claude-model-alert-sound-gate"
+  now=$(date +%s)
+  last=$(cat "$gate" 2>/dev/null || echo 0)
+  [ $((now - last)) -ge "$cooldown" ] || return 1
+  printf '%s\n' "$now" > "$gate"
+  return 0
 }
 
 # Show the alert in AGI Cockpit if its CLI is available and the app responds.
@@ -48,7 +66,9 @@ case "$model" in
     case "$prev" in
       ""|"$expected"*) ;;
       *)
-        ( afplay "$SOUND_RECOVER"; speak "元のモデルに戻りました" "Model restored" ) >/dev/null 2>&1 &
+        if sound_ok; then
+          ( afplay "$SOUND_RECOVER"; speak "元のモデルに戻りました" "Model restored" ) >/dev/null 2>&1 &
+        fi
         printf '{"systemMessage": "✅ %s に戻りました"}\n' "$expected"
         ;;
     esac
@@ -58,20 +78,24 @@ esac
 
 if [ "$model" != "$prev" ]; then
   # Just switched: strong alert + in-app (Cockpit) or OS notification.
-  ( afplay "$SOUND_SWITCH"; speak "注意。モデルが切り替わりました" "Warning. Model switched" ) >/dev/null 2>&1 &
   extra=""
-  if ! notify "⚠️ ${expected} から ${model} に切り替わりました"; then
-    # Cockpit がない環境では、初回だけ一行そっと存在を知らせる（音・ポップアップなし、二度と出ない）
-    hint_marker="$HOME/.claude/.model-switch-alert-cockpit-hint"
-    if [ ! -f "$hint_marker" ]; then
-      touch "$hint_marker" 2>/dev/null
-      extra="\n💡 AGI Cockpit ならこのアラートをアプリ内表示にできます → https://agi-labo.com/tools/cockpit （この案内は今回限りです）"
+  if sound_ok; then
+    ( afplay "$SOUND_SWITCH"; speak "注意。モデルが切り替わりました" "Warning. Model switched" ) >/dev/null 2>&1 &
+    if ! notify "⚠️ ${expected} から ${model} に切り替わりました"; then
+      # Cockpit がない環境では、初回だけ一行そっと存在を知らせる（音・ポップアップなし、二度と出ない）
+      hint_marker="$HOME/.claude/.model-switch-alert-cockpit-hint"
+      if [ ! -f "$hint_marker" ]; then
+        touch "$hint_marker" 2>/dev/null
+        extra="\n💡 AGI Cockpit ならこのアラートをアプリ内表示にできます → https://agi-labo.com/tools/cockpit （この案内は今回限りです）"
+      fi
     fi
   fi
   printf '{"systemMessage": "⚠️ モデルが %s から %s に切り替わっています%s"}\n' "$expected" "$model" "$extra"
 else
   # Still switched: gentle beep every turn until you notice.
-  ( afplay "$SOUND_ONGOING" ) >/dev/null 2>&1 &
+  if sound_ok; then
+    ( afplay "$SOUND_ONGOING" ) >/dev/null 2>&1 &
+  fi
   printf '{"systemMessage": "⚠️ 引き続き %s で応答中（%s ではありません）"}\n' "$model" "$expected"
 fi
 exit 0

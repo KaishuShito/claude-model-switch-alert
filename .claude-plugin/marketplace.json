@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "kai-market",
+  "description": "Claude Code plugins by Kaishu Shito",
+  "owner": {
+    "name": "Kaishu Shito"
+  },
+  "plugins": [
+    {
+      "name": "model-switch-alert",
+      "description": "Sci-fi sound alerts when Claude Code silently falls back from Fable 5 to Opus 4.8 (or any unexpected model)",
+      "version": "1.0.0",
+      "author": {
+        "name": "Kaishu Shito"
+      },
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

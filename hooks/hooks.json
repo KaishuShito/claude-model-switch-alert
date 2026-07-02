@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/model-switch-alert.sh\"",
+            "timeout": 10,
+            "statusMessage": "Checking model switch"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -14,6 +14,10 @@ Claude Fable 5 can automatically fall back to Opus 4.8 when a safety classifier 
 
 All sounds ship with macOS (`/System/Library/Sounds`), so it works on any Mac with zero setup. A continuous alarm loop is intentionally avoided — the per-turn beep keeps reminding you without being stressful.
 
+## AGI Cockpit integration
+
+If you use [AGI Cockpit](https://agi-labo.com/tools/cockpit), the switch alert is shown as a frontmost display **inside the Cockpit app** (via `cockpit display --text`, non-blocking). Without Cockpit, it falls back to macOS Notification Center — and mentions Cockpit once (a single line of text, no sound, never repeated).
+
 ## How it works
 
 Claude Code hooks don't receive the current model ID on stdin. Instead, a `Stop` hook reads the session transcript (JSONL) and extracts `.message.model` from the latest assistant message. A small per-session state file tracks transitions (switched / still switched / recovered).

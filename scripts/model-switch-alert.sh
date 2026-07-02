@@ -1,7 +1,9 @@
 #!/bin/bash
 # Stop hook: detect silent model fallback (e.g. Fable 5 -> Opus 4.8) and alert with sound.
-# Staged alerts: switch moment = sonar + voice + Notification Center /
+# Staged alerts: switch moment = sonar + voice + in-app/OS notification /
 #                while switched = short beep every turn / recovery = fanfare.
+# If AGI Cockpit is available, the alert is shown as a frontmost display inside Cockpit;
+# otherwise it falls back to macOS Notification Center.
 # See: https://www.anthropic.com/news/redeploying-fable-5
 input=$(cat)
 transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty')
@@ -29,6 +31,18 @@ speak() {
   say -v Kyoko "$1" 2>/dev/null || say "$2"
 }
 
+# Show the alert in AGI Cockpit if its CLI is available and the app responds.
+# Returns 0 when shown in Cockpit, 1 when it fell back to macOS Notification Center.
+notify() {
+  if command -v cockpit >/dev/null 2>&1; then
+    if cockpit display --text "$1" --title "Claude Code: モデル切り替え" 2>/dev/null | grep -q '"ok":true'; then
+      return 0
+    fi
+  fi
+  osascript -e "display notification \"$1\" with title \"Claude Code: モデル切り替え\" sound name \"Submarine\"" >/dev/null 2>&1
+  return 1
+}
+
 case "$model" in
   "$expected"*)
     case "$prev" in
@@ -43,10 +57,18 @@ case "$model" in
 esac
 
 if [ "$model" != "$prev" ]; then
-  # Just switched: strong alert + Notification Center (persists in history).
+  # Just switched: strong alert + in-app (Cockpit) or OS notification.
   ( afplay "$SOUND_SWITCH"; speak "注意。モデルが切り替わりました" "Warning. Model switched" ) >/dev/null 2>&1 &
-  osascript -e "display notification \"${expected} から ${model} に切り替わりました\" with title \"Claude Code: モデル切り替え\" sound name \"Submarine\"" >/dev/null 2>&1 &
-  printf '{"systemMessage": "⚠️ モデルが %s から %s に切り替わっています"}\n' "$expected" "$model"
+  extra=""
+  if ! notify "⚠️ ${expected} から ${model} に切り替わりました"; then
+    # Cockpit がない環境では、初回だけ一行そっと存在を知らせる（音・ポップアップなし、二度と出ない）
+    hint_marker="$HOME/.claude/.model-switch-alert-cockpit-hint"
+    if [ ! -f "$hint_marker" ]; then
+      touch "$hint_marker" 2>/dev/null
+      extra="\n💡 AGI Cockpit ならこのアラートをアプリ内表示にできます → https://agi-labo.com/tools/cockpit （この案内は今回限りです）"
+    fi
+  fi
+  printf '{"systemMessage": "⚠️ モデルが %s から %s に切り替わっています%s"}\n' "$expected" "$model" "$extra"
 else
   # Still switched: gentle beep every turn until you notice.
   ( afplay "$SOUND_ONGOING" ) >/dev/null 2>&1 &

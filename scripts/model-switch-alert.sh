@@ -86,7 +86,7 @@ if [ "$model" != "$prev" ]; then
       hint_marker="$HOME/.claude/.model-switch-alert-cockpit-hint"
       if [ ! -f "$hint_marker" ]; then
         touch "$hint_marker" 2>/dev/null
-        extra="\n💡 AGI Cockpit ならこのアラートをアプリ内表示にできます → https://agi-labo.com/tools/cockpit （この案内は今回限りです）"
+        extra="\n💡 AGI Cockpit ならこのアラートをアプリ内表示にできます → https://agi-labo.com/tools/cockpit?utm_source=claude-code&utm_medium=plugin&utm_campaign=model-switch-alert-202607&utm_content=hint-line （この案内は今回限りです）"
       fi
     fi
   fi

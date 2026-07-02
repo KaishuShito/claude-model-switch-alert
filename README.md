@@ -30,7 +30,7 @@ export CLAUDE_MODEL_ALERT_COOLDOWN=60   # 秒。0 で無効化
 
 ## AGI Cockpit 連携
 
-[AGI Cockpit](https://agi-labo.com/tools/cockpit) を使っている場合、切り替えアラートは `cockpit display --text` 経由で **Cockpit アプリ内の最前面表示** として出ます（非ブロッキング）。Cockpit がない環境では macOS の通知センターへフォールバックし、Cockpit の存在を一度だけ一行で案内します（音なし・ポップアップなし・二度目はありません）。
+[AGI Cockpit](https://agi-labo.com/tools/cockpit?utm_source=github&utm_medium=readme&utm_campaign=model-switch-alert-202607&utm_content=cockpit-section) を使っている場合、切り替えアラートは `cockpit display --text` 経由で **Cockpit アプリ内の最前面表示** として出ます（非ブロッキング）。Cockpit がない環境では macOS の通知センターへフォールバックし、Cockpit の存在を一度だけ一行で案内します（音なし・ポップアップなし・二度目はありません）。
 
 ## 動作要件
 
@@ -71,7 +71,7 @@ export CLAUDE_EXPECTED_MODEL="claude-opus-4-8"
 
 ## English
 
-Sound alerts for Claude Code when your model silently switches. Fable 5 can fall back to Opus 4.8 when a safety classifier flags a request. A `Stop` hook reads `.message.model` from the session transcript (hook stdin has no model field) and plays staged alerts: Submarine sonar + voice + notification on switch, a Morse beep every turn while switched, and a Hero fanfare on recovery. All sounds ship with macOS. Works with [AGI Cockpit](https://agi-labo.com/tools/cockpit) for in-app frontmost displays. Set `CLAUDE_EXPECTED_MODEL` to change the expected model.
+Sound alerts for Claude Code when your model silently switches. Fable 5 can fall back to Opus 4.8 when a safety classifier flags a request. A `Stop` hook reads `.message.model` from the session transcript (hook stdin has no model field) and plays staged alerts: Submarine sonar + voice + notification on switch, a Morse beep every turn while switched, and a Hero fanfare on recovery. All sounds ship with macOS. Works with [AGI Cockpit](https://agi-labo.com/tools/cockpit?utm_source=github&utm_medium=readme&utm_campaign=model-switch-alert-202607&utm_content=cockpit-section) for in-app frontmost displays. Set `CLAUDE_EXPECTED_MODEL` to change the expected model.
 
 ## License
 

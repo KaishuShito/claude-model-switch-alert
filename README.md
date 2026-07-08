@@ -42,15 +42,28 @@ export CLAUDE_MODEL_ALERT_COOLDOWN=60   # 秒。0 で無効化
 
 ## statusLine 連携（手動オプトイン）
 
-Claude Code の statusLine はプラグインから自動登録できないため、使っている statusLine スクリプトから手動で呼び出してください。statusLine の標準入力 JSON には `model.id` が含まれるので、長いターン中でもより早く変化を検知できます。
+statusLine 連携は「切り替わったその瞬間」に検知するための上乗せオプションです。**組み込まなくても Stop / PostToolUse hook による検知はそのまま全部動きます**。statusLine の標準入力 JSON には `model.id` が直接含まれ、アクティブなセッション中は頻繁に再実行されるため、これが最速の検知チャネルになります。
 
-呼び出し元が stdin を再利用できるよう、先に JSON を変数へ読み込んでから渡します。
+Claude Code の statusLine はプラグインから自動登録できないため、使っている statusLine スクリプトから手動で呼び出してください。呼び出し元が stdin を再利用できるよう、先に JSON を変数へ読み込んでから渡します。
 
 ```bash
 status_json=$(cat); bash "$HOME/.claude/plugins/cache/kai-market/model-switch-alert"/*/scripts/statusline-model-watch.sh "$status_json"
 ```
 
 この watcher は stdout に何も出さず、モデル変化時だけバックグラウンドで通常のアラート処理を起動します。元の statusLine 表示は、その後に同じ `status_json` から組み立ててください。
+
+一番簡単な組み込み方は、Claude Code の `/statusline` コマンドに「この2行を statusLine スクリプトの先頭に追加して」と頼むことです。すでに statusLine をカスタムしている場合も、冒頭の `input=$(cat)` の直後に watcher の1行を足すだけで共存できます。
+
+[ccstatusline](https://github.com/sirmalloc/ccstatusline) のような外部ツールを使っている場合は、ラッパースクリプトにします。
+
+```bash
+#!/bin/sh
+input=$(cat)
+bash "$HOME/.claude/plugins/cache/kai-market/model-switch-alert"/*/scripts/statusline-model-watch.sh "$input"
+printf '%s' "$input" | npx ccstatusline
+```
+
+なお、後から `/statusline` で statusLine を作り直すと watcher の行が消えることがあります。消えても hook による検知は生きているので、「瞬間検知がターン途中検知に戻る」だけです。
 
 ## 動作要件
 
@@ -101,19 +114,34 @@ export CLAUDE_EXPECTED_MODEL="claude-fable-5"
 /plugin uninstall model-switch-alert@kai-market
 ```
 
+## 更新履歴
+
+### v1.4.0（2026-07-08）
+
+- **通知に「どのタスクか」が出るようになりました**: AGI Cockpit のタスク名（Cockpit タスク外では作業フォルダ名）が通知タイトルに入り、本文にはフルパスが付きます。「切り替わったのは分かったけど、どのタスク？」に答えます
+- **PostToolUse hook を追加**: ターン終了を待たず、切り替わり後最初のツール実行の直後に検知します。遷移時のみ通知するので、ツール呼び出しごとに鳴ることはありません
+- **statusLine 連携（オプトイン）**: `model.id` を直接監視し、切り替わりの瞬間に検知します。組み込み方は上のセクションを参照
+- 通知テキストの組み立てを argv 渡しに変更し、タスク名やパスに特殊文字が含まれても安全になりました
+
+### v1.3.x
+
+- 手動 `/model` 切り替えのスキップ、並列セッションのクールダウン、テストスクリプト同梱
+
 ## English
 
 Sound alerts for Claude Code when your model silently switches. Fable 5 can fall back to Opus 4.8 when a safety classifier flags a request. `Stop` and `PostToolUse` hooks read `.message.model` from the session transcript (hook stdin has no model field) and play staged alerts: Submarine sonar + voice + notification on switch, a Morse beep every turn while switched at turn end, and a Hero fanfare on recovery. `PostToolUse` only alerts on transitions, so tool calls do not beep repeatedly while the switched model is ongoing.
 
 Notifications include context: the AGI Cockpit task name when available, otherwise the folder name, plus the full working directory in the body. Manual `/model` switches leave a "Set model to" trace in the transcript, so they are skipped silently and the expected baseline follows your choice — only automatic fallbacks alert. All sounds ship with macOS. Works with [AGI Cockpit](https://agi-labo.com/tools/cockpit?utm_source=github&utm_medium=readme&utm_campaign=model-switch-alert-202607&utm_content=cockpit-section) for in-app frontmost displays. Set `CLAUDE_EXPECTED_MODEL` to pin a strict initial baseline.
 
-Optional statusLine integration is manual because plugins cannot register statusLine scripts automatically. If your statusLine script already reads stdin into a variable, call:
+Optional statusLine integration is manual because plugins cannot register statusLine scripts automatically. It is an add-on for instant detection — the hooks above remain fully functional without it. If your statusLine script already reads stdin into a variable, call:
 
 ```bash
 bash "$HOME/.claude/plugins/cache/kai-market/model-switch-alert"/*/scripts/statusline-model-watch.sh "$status_json"
 ```
 
-The watcher prints nothing and starts the normal alert path in the background only when `model.id` changes.
+The watcher prints nothing and starts the normal alert path in the background only when `model.id` changes. The easiest way to wire it up is asking Claude Code's `/statusline` command to add the snippet for you; external tools like ccstatusline can coexist via a small wrapper script (read stdin once, call the watcher, then pipe the same JSON to your tool).
+
+**v1.4.0**: notifications now include the AGI Cockpit task name (or the working folder), a `PostToolUse` hook detects switches mid-turn, and the opt-in statusLine watcher catches them the moment they happen.
 
 ## License
 

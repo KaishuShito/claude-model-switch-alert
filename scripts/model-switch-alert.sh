@@ -8,6 +8,9 @@
 input=$(cat)
 transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty')
 session=$(printf '%s' "$input" | jq -r '.session_id // "unknown"')
+event=$(printf '%s' "$input" | jq -r '.hook_event_name // "Stop"')
+hook_cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
+[ -n "$hook_cwd" ] || hook_cwd="$(pwd)"
 [ -f "$transcript" ] || exit 0
 
 # All sounds ship with macOS (/System/Library/Sounds), so this works on any Mac.
@@ -15,10 +18,12 @@ SOUND_SWITCH="/System/Library/Sounds/Submarine.aiff"
 SOUND_ONGOING="/System/Library/Sounds/Morse.aiff"
 SOUND_RECOVER="/System/Library/Sounds/Hero.aiff"
 
-# Hook stdin has no model field; read the latest assistant message's model from the transcript.
+# Hook stdin usually has no model field; read the latest assistant message's model from the transcript.
+# StatusLine integration passes model.id through a synthetic event because statusLine stdin has it.
 # Exclude sidechain (subagent) messages: subagents may legitimately run on other models
 # (e.g. Haiku-powered explorers) and must not trigger a false alarm.
-model=$(tail -n 200 "$transcript" | jq -r 'select(.type == "assistant" and ((.isSidechain // false) | not)) | .message.model // empty' 2>/dev/null | grep -v '^<' | tail -n 1)
+model=$(printf '%s' "$input" | jq -r '.model.id // empty')
+[ -n "$model" ] || model=$(tail -n 200 "$transcript" | jq -r 'select(.type == "assistant" and ((.isSidechain // false) | not)) | .message.model // empty' 2>/dev/null | grep -v '^<' | tail -n 1)
 [ -n "$model" ] || exit 0
 
 # Per-session state: line 1 = baseline (the model the user chose), line 2 = last seen model.
@@ -53,15 +58,74 @@ sound_ok() {
   return 0
 }
 
+cockpit_task_json() {
+  [ -n "${AGI_COCKPIT_TASK_ID:-}" ] || return 1
+  command -v cockpit >/dev/null 2>&1 || return 1
+  local tmp pid killer rc
+  tmp=$(mktemp "${TMPDIR:-/tmp}/claude-model-alert-cockpit.XXXXXX") || return 1
+  cockpit task get "$AGI_COCKPIT_TASK_ID" > "$tmp" 2>/dev/null &
+  pid=$!
+  ( sleep 2; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  killer=$!
+  wait "$pid"
+  rc=$?
+  kill "$killer" 2>/dev/null
+  wait "$killer" 2>/dev/null
+  if [ "$rc" -eq 0 ]; then
+    cat "$tmp"
+    rm -f "$tmp"
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
+context_task_name=""
+context_label=""
+ensure_context() {
+  [ -n "$context_label" ] && return
+  if task_json=$(cockpit_task_json); then
+    context_task_name=$(printf '%s' "$task_json" | jq -r 'if .ok == true and (.data | type == "object") then (.data.name // empty) else empty end' 2>/dev/null)
+  fi
+  if [ -n "$context_task_name" ]; then
+    context_label="$context_task_name"
+  else
+    context_label="$(basename "$hook_cwd")"
+    [ -n "$context_label" ] || context_label="$hook_cwd"
+  fi
+}
+
+context_label() {
+  ensure_context
+  printf '%s' "$context_label"
+}
+
+notification_context_suffix() {
+  ensure_context
+  if [ -n "$context_task_name" ]; then
+    printf '（タスク: %s / %s）' "$context_task_name" "$hook_cwd"
+  else
+    printf '（%s）' "$hook_cwd"
+  fi
+}
+
 # Show the alert in AGI Cockpit if its CLI is available and the app responds.
 # Returns 0 when shown in Cockpit, 1 when it fell back to macOS Notification Center.
 notify() {
+  local title text
+  ensure_context
+  title="Claude Code: モデル切り替え — $context_label"
+  text="${1}$(notification_context_suffix)"
   if command -v cockpit >/dev/null 2>&1; then
-    if cockpit display --text "$1" --title "Claude Code: モデル切り替え" 2>/dev/null | grep -q '"ok":true'; then
+    if cockpit display --text "$text" --title "$title" 2>/dev/null | grep -q '"ok":true'; then
       return 0
     fi
   fi
-  osascript -e "display notification \"$1\" with title \"Claude Code: モデル切り替え\" sound name \"Submarine\"" >/dev/null 2>&1
+  osascript - "$text" "$title" >/dev/null 2>&1 <<'OSA'
+on run argv
+  display notification (item 1 of argv) with title (item 2 of argv) sound name "Submarine"
+end run
+OSA
   return 1
 }
 
@@ -83,6 +147,13 @@ manual_switch() {
         for (j = 1; j <= i; j++) if (ev[j] == "diff") lastdiff = j
         for (j = lastdiff + 1; j <= i; j++) if (ev[j] == "M") { print "manual"; exit }
       }'
+}
+
+transition_only_event() {
+  case "$event" in
+    PostToolUse|StatusLine) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 case "$model" in
@@ -123,6 +194,9 @@ if [ "$model" != "$last" ]; then
   fi
   printf '{"systemMessage": "⚠️ モデルが %s から %s に切り替わっています%s"}\n' "$baseline" "$model" "$extra"
 else
+  if transition_only_event; then
+    exit 0
+  fi
   # Still switched: gentle beep every turn until you notice.
   if sound_ok; then
     ( afplay "$SOUND_ONGOING" ) >/dev/null 2>&1 &

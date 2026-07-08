@@ -95,11 +95,6 @@ ensure_context() {
   fi
 }
 
-context_label() {
-  ensure_context
-  printf '%s' "$context_label"
-}
-
 notification_context_suffix() {
   ensure_context
   if [ -n "$context_task_name" ]; then
